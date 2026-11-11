@@ -23,3 +23,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
 The version lives in `VERSION`.
+
+## Releases
+
+Bump `VERSION`, merge to `main` and push the tag `v<VERSION>`. The Release workflow then builds the APK, signs it with the Ciniva release key and publishes it, once the run is approved in the `release` environment. Every release is signed with the same key, so updates install over the previous version.
