@@ -289,6 +289,7 @@ class PlayerActivity : ComponentActivity() {
                 .setSubtitleConfigurations(sideloadedSubtitles(f))
                 .build()
         }
+        android.util.Log.i("Ciniva", "open file ${f.id} at $positionMs: " + if (direct) "direct" else "hls ($blocker) ${caps.transcodeRequest(f, quality, audio)}")
         showTitles(if (direct) "Direct play" else "Converted by the server · $blocker")
         player.setMediaItem(item, positionMs)
         player.prepare()
@@ -330,6 +331,7 @@ class PlayerActivity : ComponentActivity() {
 
     private val listener = object : Player.Listener {
         override fun onPlayerError(error: PlaybackException) {
+            android.util.Log.e("Ciniva", "playback error (direct=$direct, forceHls=$forceHls, session=$session)", error)
             if (direct && !forceHls) {
                 // Some files the decoders claim to handle still fail; the server's conversion is the fallback.
                 forceHls = true
