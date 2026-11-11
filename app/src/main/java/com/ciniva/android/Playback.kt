@@ -90,9 +90,29 @@ class Playback(context: Context, display: Display?) {
             runCatching { info.getCapabilitiesForType(mime).profileLevels.any { it.profile == profile } }.getOrDefault(false)
     }
 
+    /**
+     * Audio formats whose decoder claimed support and then failed here (the Pixel 8's Dolby E-AC-3 decoder fails on
+     * Atmos tracks). Remembered, so those files go straight to the server, which re-encodes just the audio.
+     */
+    private val broken: Set<String> get() = Session.pref("audio.broken", "").split(',').filter { it.isNotEmpty() }.toSet()
+
+    /** Records that this device failed to decode [mime]; false if it was already known or isn't a format we track. */
+    fun markAudioBroken(mime: String?): Boolean {
+        val codec = codecOf(mime) ?: return false
+        if (codec in broken) return false
+        Session.setPref("audio.broken", (broken + codec).joinToString(","))
+        return true
+    }
+
+    private fun codecOf(mime: String?): String? = when (mime) {
+        null -> null
+        "audio/eac3-joc" -> "eac3"
+        else -> AUDIO_MIME.entries.firstOrNull { it.value == mime }?.key
+    }
+
     @OptIn(UnstableApi::class)
-    fun playsAudio(codec: String): Boolean =
-        AUDIO_MIME[codec]?.let { hasDecoder(it) } == true || PASSTHROUGH[codec]?.let { audioOut.supportsEncoding(it) } == true
+    fun playsAudio(codec: String): Boolean = codec !in broken &&
+        (AUDIO_MIME[codec]?.let { hasDecoder(it) } == true || PASSTHROUGH[codec]?.let { audioOut.supportsEncoding(it) } == true)
 
     fun defaultAudio(probe: MediaInfo?): AudioInfo? = probe?.audio?.let { a -> a.firstOrNull { it.isDefault } ?: a.firstOrNull() }
 
@@ -155,5 +175,5 @@ class Playback(context: Context, display: Display?) {
         if (dolbyVision) add("Dolby Vision")
         if (hdrDisplay) add("HDR screen")
         listOf("eac3" to "E-AC-3", "truehd" to "TrueHD", "dts" to "DTS").filter { playsAudio(it.first) }.forEach { add(it.second) }
-    }.joinToString(" · ")
+    }.joinToString(" · ") + broken.takeIf { it.isNotEmpty() }?.let { b -> "\nThe server converts: " + b.joinToString { it.uppercase() } + " (failed here)" }.orEmpty()
 }

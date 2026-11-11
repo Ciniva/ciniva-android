@@ -39,6 +39,7 @@ import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.ExoPlaybackException
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
@@ -332,7 +333,12 @@ class PlayerActivity : ComponentActivity() {
     private val listener = object : Player.Listener {
         override fun onPlayerError(error: PlaybackException) {
             android.util.Log.e("Ciniva", "playback error (direct=$direct, forceHls=$forceHls, session=$session)", error)
-            if (direct && !forceHls) {
+            val failed = (error as? ExoPlaybackException)?.takeIf { it.type == ExoPlaybackException.TYPE_RENDERER }?.rendererFormat?.sampleMimeType
+            if (failed != null && failed.startsWith("audio/") && caps.markAudioBroken(failed)) {
+                // The device's audio decoder failed on a format it claims; from now on the server converts that audio.
+                val at = player.currentPosition
+                lifecycleScope.launch { open(at) }
+            } else if (direct && !forceHls) {
                 // Some files the decoders claim to handle still fail; the server's conversion is the fallback.
                 forceHls = true
                 val at = player.currentPosition
