@@ -1,0 +1,82 @@
+name: Release
+
+# A v<VERSION> tag on main publishes release v<VERSION> with the APK signed by the Ciniva release key. A manual run
+# from main signs a build as an artifact only.
+#
+# The job runs in the `release` environment. It holds the signing secrets and needs an approval before each run,
+# so neither a pull request nor a tag on another branch can reach the key. Android refuses an update signed with a
+# different key, so every version must use this one (its certificate is pinned below).
+#   ANDROID_KEYSTORE           base64 of ciniva-release.jks
+#   ANDROID_KEYSTORE_PASSWORD  its password (the key uses the same one)
+#   ANDROID_KEY_ALIAS          ciniva
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sign:
+    if: startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    environment: release
+    env:
+      CERT_SHA256: 0fc4a3fffd88f449d240027c604268129d9c198afc9f2157292b550f5fed4b05
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Version and branch
+        run: |
+          v=$(tr -d ' \r\n' < VERSION)
+          if [ "${GITHUB_REF#refs/tags/}" != "$GITHUB_REF" ]; then
+            [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME does not match VERSION $v"; exit 1; }
+            git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "tag $GITHUB_REF_NAME is not on main"; exit 1; }
+          fi
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Build and sign
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE }}
+          CINIVA_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          CINIVA_KEY_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          CINIVA_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          [ -n "$KEYSTORE_B64" ] && [ -n "$CINIVA_KEYSTORE_PASSWORD" ] && [ -n "$CINIVA_KEY_ALIAS" ] || { echo "signing secrets missing"; exit 1; }
+          export CINIVA_KEYSTORE="$RUNNER_TEMP/release.jks"
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$CINIVA_KEYSTORE"
+          ./gradlew assembleRelease --no-daemon
+          rm -f "$CINIVA_KEYSTORE"
+
+      - name: Check the signature
+        run: |
+          apk="Ciniva-$VERSION-android.apk"
+          mv app/build/outputs/apk/release/app-release.apk "$apk"
+          apksigner="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)/apksigner"
+          "$apksigner" verify --print-certs "$apk" | tee "$RUNNER_TEMP/certs.txt"
+          grep -q "certificate SHA-256 digest: $CERT_SHA256" "$RUNNER_TEMP/certs.txt" || { echo "not signed with the Ciniva release key"; exit 1; }
+          sha256sum "$apk" | tee "$apk.sha256"
+          echo "APK=$apk" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: Ciniva-${{ env.VERSION }}-android-signed
+          path: |
+            ${{ env.APK }}
+            ${{ env.APK }}.sha256
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "v$VERSION" > /dev/null 2>&1; then echo "v$VERSION is already released."; exit 0; fi
+          gh release create "v$VERSION" "$APK" "$APK.sha256" --title "Ciniva for Android $VERSION" --generate-notes --target "$GITHUB_SHA"
