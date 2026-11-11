@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android TV launcher banner (320x180): the Ciniva mark on the app background. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="320dp" android:height="180dp"
+    android:viewportWidth="320" android:viewportHeight="180">
+    <path android:pathData="M0,0h320v180h-320z" android:fillColor="#0B0D12" />
+    <group android:translateX="96" android:translateY="26" android:scaleX="2" android:scaleY="2">
+        <path android:pathData="M42,20a16,16 0,1 0,0 24" android:strokeColor="#F5B84A"
+            android:strokeWidth="7" android:strokeLineCap="round" android:fillColor="#00000000" />
+        <path android:pathData="M29,25v14l11,-7z" android:fillColor="#F5B84A" />
+    </group>
+</vector>
